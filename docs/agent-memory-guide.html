@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>长期 Agent 记忆机制全景解析</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --card: #111827;
+    --card-hover: #1a2332;
+    --border: #1e293b;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --accent3: #34d399;
+    --accent4: #fb923c;
+    --accent5: #f472b6;
+    --accent6: #a78bfa;
+    --hot: #ef4444;
+    --warm: #f59e0b;
+    --cold: #3b82f6;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* 导航 */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(10, 14, 23, 0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+  }
+  nav .inner {
+    max-width: 1200px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 60px;
+  }
+  nav .logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+  nav ul { list-style: none; display: flex; gap: 1.5rem; }
+  nav a { color: var(--text-dim); text-decoration: none; font-size: 0.9rem; transition: color .2s; }
+  nav a:hover { color: var(--accent); }
+
+  /* Hero */
+  .hero {
+    margin-top: 60px;
+    padding: 6rem 2rem 4rem;
+    text-align: center;
+    background: linear-gradient(180deg, rgba(56,189,248,0.06) 0%, transparent 100%);
+  }
+  .hero h1 {
+    font-size: 3rem; font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 1rem;
+  }
+  .hero p { font-size: 1.2rem; color: var(--text-dim); max-width: 700px; margin: 0 auto 2rem; }
+  .hero .tags { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
+  .hero .tag {
+    padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem;
+    background: rgba(56,189,248,0.1); color: var(--accent); border: 1px solid rgba(56,189,248,0.2);
+  }
+
+  /* Section */
+  .section { max-width: 1100px; margin: 0 auto; padding: 4rem 2rem; }
+  .section h2 {
+    font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem;
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  .section h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #000; font-size: 1rem; font-weight: 800;
+  }
+  .section .desc { color: var(--text-dim); margin-bottom: 2.5rem; font-size: 1.05rem; }
+
+  /* 分类总览 */
+  .memory-layers {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem; margin-bottom: 3rem;
+  }
+  .layer-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 2rem; transition: transform .2s, border-color .2s;
+  }
+  .layer-card:hover { transform: translateY(-4px); }
+  .layer-card.hot { border-color: rgba(239,68,68,0.3); }
+  .layer-card.hot:hover { border-color: var(--hot); }
+  .layer-card.warm { border-color: rgba(245,158,11,0.3); }
+  .layer-card.warm:hover { border-color: var(--warm); }
+  .layer-card.cold { border-color: rgba(59,130,246,0.3); }
+  .layer-card.cold:hover { border-color: var(--cold); }
+  .layer-icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
+  .layer-card h3 { font-size: 1.3rem; margin-bottom: 0.5rem; }
+  .layer-card p { color: var(--text-dim); font-size: 0.95rem; }
+  .layer-card .tech {
+    margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.4rem;
+  }
+  .layer-card .tech span {
+    padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem;
+    background: rgba(255,255,255,0.05); color: var(--text-dim);
+  }
+
+  /* 方案卡片 */
+  .solutions { display: flex; flex-direction: column; gap: 2rem; }
+  .solution {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    overflow: hidden; transition: border-color .2s;
+  }
+  .solution:hover { border-color: rgba(56,189,248,0.3); }
+  .solution-header {
+    padding: 2rem 2rem 0;
+    display: flex; align-items: flex-start; gap: 1.5rem;
+  }
+  .solution-badge {
+    flex-shrink: 0; width: 64px; height: 64px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem; font-weight: 800;
+  }
+  .solution-info { flex: 1; }
+  .solution-info h3 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.3rem; }
+  .solution-info .meta {
+    display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem;
+  }
+  .solution-info .meta span {
+    font-size: 0.8rem; color: var(--text-dim);
+    display: flex; align-items: center; gap: 0.3rem;
+  }
+  .solution-info .meta .stars { color: var(--warm); }
+  .solution-info .meta .lang { color: var(--accent); }
+  .solution-body { padding: 1.5rem 2rem 2rem; }
+
+  /* 标签 */
+  .feature-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+  .feature-tag {
+    padding: 0.25rem 0.7rem; border-radius: 20px; font-size: 0.78rem;
+    background: rgba(129,140,248,0.1); color: var(--accent2);
+    border: 1px solid rgba(129,140,248,0.2);
+  }
+
+  /* 架构图 */
+  .arch-diagram {
+    background: rgba(0,0,0,0.3); border-radius: 12px; padding: 1.5rem;
+    margin-bottom: 1.5rem; font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.82rem; line-height: 1.5; overflow-x: auto;
+    color: var(--text-dim);
+  }
+  .arch-diagram .hl { color: var(--accent); }
+  .arch-diagram .hl2 { color: var(--accent3); }
+  .arch-diagram .hl3 { color: var(--accent4); }
+
+  /* 优缺点 */
+  .pros-cons {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+  }
+  @media (max-width: 600px) { .pros-cons { grid-template-columns: 1fr; } }
+  .pros, .cons {
+    padding: 1rem; border-radius: 10px;
+  }
+  .pros { background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.15); }
+  .cons { background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.15); }
+  .pros h4 { color: var(--accent3); font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .cons h4 { color: var(--hot); font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .pros ul, .cons ul { padding-left: 1.2rem; }
+  .pros li, .cons li { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0.3rem; }
+
+  /* 对比表格 */
+  .comparison-table {
+    width: 100%; border-collapse: collapse; margin: 1.5rem 0;
+    font-size: 0.88rem;
+  }
+  .comparison-table th {
+    text-align: left; padding: 0.8rem 1rem;
+    background: rgba(56,189,248,0.08); color: var(--accent);
+    border-bottom: 2px solid var(--border); font-weight: 600;
+  }
+  .comparison-table td {
+    padding: 0.7rem 1rem; border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .comparison-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .comparison-table .name { color: var(--text); font-weight: 600; }
+  .badge-yes { color: var(--accent3); }
+  .badge-no { color: var(--hot); }
+  .badge-partial { color: var(--warm); }
+
+  /* 流程图 */
+  .flow-container {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0.5rem; padding: 1.5rem 0; flex-wrap: wrap;
+  }
+  .flow-node {
+    padding: 0.6rem 1.2rem; border-radius: 10px;
+    font-size: 0.85rem; font-weight: 600;
+    border: 1px solid; white-space: nowrap;
+  }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+
+  /* 代码块 */
+  .code-block {
+    background: #0d1117; border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.2rem; margin: 1rem 0; overflow-x: auto;
+    font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.82rem;
+    line-height: 1.6; color: var(--text-dim);
+  }
+  .code-block .kw { color: #ff7b72; }
+  .code-block .fn { color: #d2a8ff; }
+  .code-block .str { color: #a5d6ff; }
+  .code-block .cmt { color: #484f58; font-style: italic; }
+  .code-block .type { color: #79c0ff; }
+
+  /* 关键指标 */
+  .metrics {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem; margin: 1.5rem 0;
+  }
+  .metric {
+    text-align: center; padding: 1.2rem; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--border);
+  }
+  .metric .val { font-size: 2rem; font-weight: 800; }
+  .metric .label { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.3rem; }
+
+  /* 时间线 */
+  .timeline { position: relative; padding-left: 2rem; }
+  .timeline::before {
+    content: ''; position: absolute; left: 7px; top: 0; bottom: 0;
+    width: 2px; background: linear-gradient(180deg, var(--accent), var(--accent2), var(--accent3));
+  }
+  .timeline-item { position: relative; margin-bottom: 2rem; }
+  .timeline-item::before {
+    content: ''; position: absolute; left: -2rem; top: 0.3rem;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 3px solid var(--accent); background: var(--bg);
+  }
+  .timeline-item h4 { font-size: 1rem; color: var(--text); margin-bottom: 0.3rem; }
+  .timeline-item p { color: var(--text-dim); font-size: 0.9rem; }
+  .timeline-item .year { color: var(--accent); font-size: 0.8rem; font-weight: 600; }
+
+  /* 分隔 */
+  .divider {
+    height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 3rem 0;
+  }
+
+  /* 底部推荐 */
+  .recommendation {
+    background: linear-gradient(135deg, rgba(56,189,248,0.08), rgba(129,140,248,0.08));
+    border: 1px solid rgba(56,189,248,0.2); border-radius: 16px;
+    padding: 2.5rem; margin-top: 2rem;
+  }
+  .recommendation h3 { font-size: 1.4rem; margin-bottom: 1rem; color: var(--accent); }
+  .recommendation .stack-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+  .stack-item {
+    padding: 1.2rem; border-radius: 12px;
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border);
+  }
+  .stack-item .label { font-size: 0.8rem; color: var(--accent3); font-weight: 600; margin-bottom: 0.3rem; }
+  .stack-item .value { font-size: 1rem; font-weight: 600; }
+  .stack-item .note { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+  /* Footer */
+  footer {
+    text-align: center; padding: 3rem 2rem;
+    border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.85rem;
+  }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* 动画 */
+  .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s, transform 0.6s; }
+  .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 2rem; }
+    nav ul { display: none; }
+    .solution-header { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <div class="logo">🧠 Agent Memory</div>
+    <ul>
+      <li><a href="#taxonomy">分类体系</a></li>
+      <li><a href="#solutions">主流方案</a></li>
+      <li><a href="#comparison">横向对比</a></li>
+      <li><a href="#recommend">推荐方案</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <h1>长期 Agent 记忆机制全景解析</h1>
+  <p>从上下文窗口到时态知识图谱，深入剖析 7 种主流记忆方案的架构原理、优劣分析与选型建议</p>
+  <div class="tags">
+    <span class="tag">MemGPT / Letta</span>
+    <span class="tag">Mem0</span>
+    <span class="tag">Hermes Agent</span>
+    <span class="tag">AI Scientist v2</span>
+    <span class="tag">Zep / Graphiti</span>
+    <span class="tag">RAG</span>
+    <span class="tag">GraphRAG</span>
+  </div>
+</section>
+
+<!-- 1. 为什么需要长期记忆 -->
+<section class="section fade-in" id="taxonomy">
+  <h2><span class="num">1</span> 为什么 Agent 需要长期记忆？</h2>
+  <p class="desc">LLM 天然的上下文窗口有限（即使 128K 也不够用），Agent 在长程任务中面临核心矛盾。</p>
+
+  <div class="arch-diagram">
+<span class="hl">核心矛盾：</span>Agent 任务跨度（小时~天~周）vs LLM 上下文窗口（分钟级）
+
+┌──────────────────────────────────────────────────────────────┐
+│  Agent 完整任务生命周期                                        │
+│  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐    │
+│  │调研  │→│假设  │→│编码  │→│实验  │→│分析  │→│论文  │    │
+│  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘    │
+│  100K     80K     150K    200K    100K     80K tokens      │
+│                                                              │
+│  <span class="hl2">总 token 量：~700K+ → 远超任何单次上下文窗口</span>             │
+│                                                              │
+│  没有记忆系统 = Agent 每次都在失忆状态下工作                     │
+└──────────────────────────────────────────────────────────────┘
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="val" style="color: var(--hot)">700K+</div>
+      <div class="label">单次科研任务预估 Token</div>
+    </div>
+    <div class="metric">
+      <div class="val" style="color: var(--warm)">128K</div>
+      <div class="label">GPT-4o 最大上下文</div>
+    </div>
+    <div class="metric">
+      <div class="val" style="color: var(--accent3)">5.5x</div>
+      <div class="label">上下文缺口倍数</div>
+    </div>
+    <div class="metric">
+      <div class="val" style="color: var(--accent)">$50+</div>
+      <div class="label">全塞入上下文单次成本</div>
+    </div>
+  </div>
+
+  <h2 style="margin-top: 3rem;"><span class="num">2</span> 记忆的三层分类体系</h2>
+  <p class="desc">受认知科学启发，Agent 社区形成了 HOT / WARM / COLD 三层记忆共识。</p>
+
+  <div class="memory-layers">
+    <div class="layer-card hot">
+      <div class="layer-icon">🔥</div>
+      <h3>HOT Memory（工作记忆）</h3>
+      <p>当前正在做的事。直接注入 LLM 上下文窗口，每次调用都可访问。必须精简，控制在 ~2000 字以内。</p>
+      <div class="tech">
+        <span>Prompt 注入</span><span>系统消息</span><span>CURRENT_STATE.md</span><span>Scratchpad</span>
+      </div>
+    </div>
+    <div class="layer-card warm">
+      <div class="layer-icon">🌡️</div>
+      <h3>WARM Memory（情景记忆）</h3>
+      <p>最近经历过的具体事件。按语义相关性检索，按需注入上下文。覆盖范围：最近几天到几周。</p>
+      <div class="tech">
+        <span>向量数据库</span><span>Embedding</span><span>Chroma</span><span>Pinecone</span><span>FAISS</span>
+      </div>
+    </div>
+    <div class="layer-card cold">
+      <div class="layer-icon">🧊</div>
+      <h3>COLD Memory（语义记忆）</h3>
+      <p>长期积累的结构化知识。跨会话持久化，支持推理和关联查询。覆盖范围：整个项目生命周期。</p>
+      <div class="tech">
+        <span>知识图谱</span><span>向量库</span><span>Graphiti</span><span>Neo4j</span><span>GraphRAG</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arch-diagram">
+<span class="hl">记忆读写流程：</span>
+
+  LLM 调用
+    │
+    ▼
+┌─────────┐   1. 全量注入    ┌──────────────┐
+│ <span class="hl">HOT</span>     │ ═════════════▶ │  LLM Context  │
+│ Memory  │                 │  Window       │
+└─────────┘                 │                │
+                            │  ┌──────────┐ │   2. 按需检索
+┌─────────┐   检索 Top-K    │  │ <span class="hl2">WARM</span>     │ │ ◀══════════
+│ <span class="hl2">向量库</span>   │ ◀════════════ │  Memory   │ │
+│ Chroma  │                │  └──────────┘ │
+└─────────┘                 │                │
+                            │  ┌──────────┐ │   3. 推理查询
+┌─────────┐   关系查询     │  │ <span class="hl3">COLD</span>     │ │ ◀══════════
+│ <span class="hl3">知识图谱</span> │ ◀════════════ │  Memory   │ │
+│ Graphiti│                │  └──────────┘ │
+└─────────┘                 └──────────────┘
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 主流方案详解 -->
+<section class="section fade-in" id="solutions">
+  <h2><span class="num">3</span> 七大主流记忆方案详解</h2>
+  <p class="desc">从最简单的 Prompt 注入到最复杂的时态知识图谱，逐一剖析。</p>
+
+  <div class="solutions">
+
+    <!-- 方案1: MemGPT / Letta -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">M</div>
+        <div class="solution-info">
+          <h3>MemGPT / Letta</h3>
+          <div class="meta">
+            <span class="stars">⭐ 14k+</span>
+            <span class="lang">Python</span>
+            <span>2023年10月</span>
+            <span>UC Berkeley</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">虚拟上下文管理</span>
+            <span class="feature-tag">自编辑记忆</span>
+            <span class="feature-tag">OS 级抽象</span>
+            <span class="feature-tag">分页加载</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>把 LLM 上下文窗口当"内存"，外存当"硬盘"，自己管理换页。
+
+┌───────────────────────────────────────────────────┐
+│  LLM Context Window（"主存"，有限）                 │
+│  ┌──────────┬──────────┬───────────────────────┐  │
+│  │ System   │ Core     │ Recent Messages       │  │
+│  │ Prompt   │ Memory   │ (最近对话)             │  │
+│  └──────────┴──────────┴───────────────────────┘  │
+│       ▲                │                            │
+│       │ 全量注入        │ 按需换页（send_message）   │
+│       │                ▼                            │
+│  ┌──────────┐   ┌──────────────┐                   │
+│  │ <span class="hl">inner</span>     │   │ <span class="hl2">recall_memory</span>  │ ← Agent 自主决定什么时候加载什么  │
+│  │ dialogue  │   │ search_memory  │                   │
+│  │ buffer    │   │ insert_memory  │                   │
+│  └──────────┘   └──────────────┘                   │
+│                          │                          │
+├──────────────────────────┼──────────────────────────┤
+│  External Store（"硬盘"，无限）                      │
+│  ┌──────────────────────────────────────────────┐   │
+│  │  recall_storage    (长期对话历史)             │   │
+│  │  archival_storage  (归档记忆，向量检索)       │   │
+│  └──────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────┘
+        </div>
+
+        <p style="margin-bottom: 1rem; color: var(--text-dim);">
+          MemGPT 的核心创新是让 Agent 像操作系统管理虚拟内存一样管理自己的上下文。Agent 有 <code>inner_monologue</code>（内心独白）和对外输出两层，通过 <code>send_message</code>、<code>recall_memory</code>、<code>insert_memory</code> 等内部函数自主决定何时从外存加载什么内容到上下文。
+        </p>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>Agent 自主管理记忆，无需人工干预</li>
+              <li>理论上支持无限长度对话</li>
+              <li>开源社区活跃，Letta 持续维护</li>
+              <li>支持多种后端存储（Postgres / Chroma / Redis）</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>记忆检索质量依赖 Agent 的 prompt 设计</li>
+              <li>频繁的工具调用增加延迟和 token 成本</li>
+              <li>缺乏时序推理能力（不知道"什么时候学的"）</li>
+              <li>多 Agent 协作时记忆隔离不清晰</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案2: Mem0 -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #f59e0b, #ef4444);">0</div>
+        <div class="solution-info">
+          <h3>Mem0</h3>
+          <div class="meta">
+            <span class="stars">⭐ 25k+</span>
+            <span class="lang">Python</span>
+            <span>2024年3月</span>
+            <span>Mem0 Inc</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">自动记忆提取</span>
+            <span class="feature-tag">去重合并</span>
+            <span class="feature-tag">用户/会话/Agent 三级</span>
+            <span class="feature-tag">图记忆</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>从对话中自动提取记忆片段，去重合并，形成结构化记忆。
+
+  对话/交互
+     │
+     ▼
+┌──────────┐     ┌─────────────┐     ┌──────────────┐
+│ <span class="hl">add()</span>   │────▶│ <span class="hl2">Memory Extractor</span> │────▶│ 提取的记忆片段 │
+│ 传入对话  │     │ (LLM 自动提取) │     │ "用户偏好Go"  │
+└──────────┘     └─────────────┘     └──────┬───────┘
+                                              │
+                                              ▼
+                                       ┌─────────────┐
+                                       │ <span class="hl3">去重 + 合并</span>  │  相似记忆自动合并更新
+                                       └──────┬──────┘
+                                              │
+                                              ▼
+  ┌─────────────────────────────────────────────────┐
+  │              <span class="hl">Mem0 Memory Store</span>                      │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
+  │  │ 用户记忆  │  │ 会话记忆  │  │ Agent记忆 │       │
+  │  │ user_id  │  │ session  │  │ agent_id │       │
+  │  └──────────┘  └──────────┘  └──────────┘       │
+  └─────────────────────────────────────────────────┘
+        </div>
+
+        <p style="margin-bottom: 1rem; color: var(--text-dim);">
+          Mem0 的最大特点是<strong>开箱即用的自动记忆提取</strong>。你只需要调用 <code>memory.add(data, user_id="xxx")</code>，它就自动用 LLM 从对话中提取关键信息，存入向量库。检索时 <code>memory.search(query, user_id="xxx")</code> 返回相关记忆。2024年底还新增了 Graph Memory（图记忆）功能。
+        </p>
+
+        <div class="code-block">
+<span class="cmt"># Mem0 最简用法 — 3 行代码</span>
+<span class="kw">from</span> mem0 <span class="kw">import</span> Memory
+m = Memory()
+
+<span class="cmt"># 自动从对话提取记忆</span>
+m.<span class="fn">add</span>(<span class="str">"我在做一个科研Agent，使用Go语言和Eino框架"</span>, user_id=<span class="str">"mingkun"</span>)
+
+<span class="cmt"># 语义检索</span>
+result = m.<span class="fn">search</span>(<span class="str">"用什么语言开发Agent"</span>, user_id=<span class="str">"mingkun"</span>)
+<span class="cmt"># → ["用户在用Go和Eino框架开发科研Agent"]</span>
+        </div>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>API 极简，3 行代码接入</li>
+              <li>自动提取 + 去重 + 合并，零配置</li>
+              <li>用户/会话/Agent 三级隔离</li>
+              <li>支持 Qdrant / Chroma / Postgres 等多种后端</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>记忆提取依赖额外 LLM 调用（成本增加）</li>
+              <li>缺乏时序信息（不记录"什么时候"）</li>
+              <li>Graph Memory 功能较新，成熟度不足</li>
+              <li>不适合需要推理的复杂知识关联场景</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案3: Hermes Agent 有界文件记忆 -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #ef4444, #dc2626);">H</div>
+        <div class="solution-info">
+          <h3>Hermes Agent — 有界双文件记忆</h3>
+          <div class="meta">
+            <span class="stars">⭐ 46k+</span>
+            <span class="lang">Python</span>
+            <span>2024年</span>
+            <span>Nous Research</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">有界记忆 ≤2200 字</span>
+            <span class="feature-tag">冻结快照</span>
+            <span class="feature-tag">零额外成本</span>
+            <span class="feature-tag">压缩摘要</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>严格限制记忆大小（≤2200 字），不依赖向量库，用"写 + 压缩 + 快照"管理记忆生命周期。
+
+┌───────────────────────────────────────────────┐
+│  MEMORY.md（≤ 2200 字，HOT Memory）             │
+│  ┌───────────────────────────────────────────┐│
+│  │ # 2026-04-17                              ││
+│  │ - GNN 节点分类实验：GCN baseline 81.5%    ││
+│  │ - GraphSAGE 两层 84.2%，提升 2.7%         ││
+│  │ - 下一步：尝试 GAT 注意力机制             ││
+│  └───────────────────────────────────────────┘│
+└───────────────────────────┬───────────────────┘
+                            │ 当字数超 2200
+                            ▼
+┌───────────────────────────────────────────────┐
+│  <span class="hl">压缩机制</span>                                       │
+│  1. 保留最近 N 条 + 最重要结论                 │
+│  2. 旧内容 LLM 摘要压缩                       │
+│  3. 生成 snapshot_20260417.md 冻结快照          │
+└───────────────────────────┬───────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────┐
+│  snapshots/（归档，不注入上下文，按需检索）      │
+│  ├── snapshot_20260410.md                     │
+│  ├── snapshot_20260415.md                     │
+│  └── snapshot_20260417.md                     │
+└───────────────────────────────────────────────┘
+        </div>
+
+        <p style="margin-bottom: 1rem; color: var(--text-dim);">
+          Hermes 的哲学是"约束即自由"——严格限制记忆在 2200 字以内，迫使 Agent 只保留真正重要的信息。这避免了"记忆膨胀"问题（上下文塞满无用信息反而降低推理质量）。超限时自动摘要压缩 + 冻结快照，兼顾成本和质量。
+        </p>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>零额外基础设施（纯文件，无需数据库）</li>
+              <li>零额外 LLM 调用成本（压缩时才用）</li>
+              <li>记忆质量高（有限空间倒逼精选）</li>
+              <li>可解释性强（直接读文件就能看记忆内容）</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>无法存储大量历史细节</li>
+              <li>语义检索能力弱（纯文本匹配）</li>
+              <li>多 Agent 共享记忆困难</li>
+              <li>快照检索需要额外机制</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案4: AI Scientist v2 BFTS + 实验记忆 -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #34d399, #059669);">A</div>
+        <div class="solution-info">
+          <h3>AI Scientist v2 — 实验树 + 挂起记忆</h3>
+          <div class="meta">
+            <span class="stars">⭐ 15k+</span>
+            <span class="lang">Python</span>
+            <span>2025年</span>
+            <span>Sakana AI</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">BFTS 树搜索</span>
+            <span class="feature-tag">实验节点记忆</span>
+            <span class="feature-tag">自动剪枝</span>
+            <span class="feature-tag">SOTA 追踪</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>记忆附着在实验树节点上，搜索过程即记忆积累过程。
+
+              [Root: Idea]
+             /      |       \
+        [Idea A]  [Idea B]  [Idea C]    ← 每个节点保存：
+        /   \        |                   - 假设描述
+    [Exp A1] [A2]  [Exp B1]              - 代码快照
+       │       │      │                   - 实验结果
+       ▼       ▼      ▼                   - 错误日志
+    Success! Failed  82.3%                - 评分
+
+  <span class="hl2">记忆传递规则：</span>
+  - 父节点结论 → 子节点 prompt（不重复犯相同错误）
+  - 兄弟节点结果 → 评分参考（避免无用探索）
+  - 失败节点 → 错误模式库（3 次失败自动剪枝）
+        </div>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>记忆和实验深度绑定，天然结构化</li>
+              <li>BFTS 并行探索效率极高</li>
+              <li>失败记忆自动传播，避免重蹈覆辙</li>
+              <li>搜索树本身就是可视化的记忆呈现</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>只适合实验探索场景，非通用</li>
+              <li>跨研究课题的记忆不持久</li>
+              <li>树深度过大时记忆检索效率下降</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案5: Zep / Graphiti 时态知识图谱 -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #3b82f6, #6366f1);">Z</div>
+        <div class="solution-info">
+          <h3>Zep / Graphiti — 时态知识图谱记忆</h3>
+          <div class="meta">
+            <span class="stars">⭐ 3.5k+</span>
+            <span class="lang">Python + TypeScript</span>
+            <span>2024年</span>
+            <span>Zep AI</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">时态知识图谱</span>
+            <span class="feature-tag">实体关系提取</span>
+            <span class="feature-tag">时间推理</span>
+            <span class="feature-tag">LongMemEval 第一</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>记忆不只是文本片段，而是带时间戳的实体-关系图谱，支持时序推理。
+
+  输入："[2026-04-15] GraphSAGE 在 Cora 上达到 83.5%"
+     │
+     ▼
+┌──────────────────────────────────────────────────┐
+│  <span class="hl">Graphiti 知识提取管道</span>                              │
+│                                                  │
+│  实体提取 ──▶ 关系提取 ──▶ 时间戳绑定 ──▶ 图谱更新  │
+│                                                  │
+│  GraphSAGE ──achieved──▶ 83.5% ──on──▶ Cora      │
+│     │                   │            │            │
+│     └──[created: 2024-01-01]               │      │
+│                         └──[date: 2026-04-15]     │
+│                                                  │
+│  <span class="hl2">时间推理能力：</span>                                    │
+│  Q: "Cora 上最好的模型是什么？"                    │
+│  → GraphSAGE (83.5%, 2026-04-15)                 │
+│  → 知道 GAT 曾在 2026-03 达到 82.1%              │
+│  → 知道 GCN 在 2025-12 只有 81.5%                 │
+│  → <span class="hl3">结论：GraphSAGE 当前 SOTA</span>                          │
+└──────────────────────────────────────────────────┘
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <div class="val" style="color: var(--accent3)">18.5%</div>
+            <div class="label">LongMemEval 超 MemGPT</div>
+          </div>
+          <div class="metric">
+            <div class="val" style="color: var(--accent)">2.4x</div>
+            <div class="label">超过普通 RAG 准确率</div>
+          </div>
+        </div>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>支持时序推理（"什么时候"、"当前最好"）</li>
+              <li>实体关系天然适合科研知识（方法→结果→数据集）</li>
+              <li>LongMemEval 基准测试第一名</li>
+              <li>自动从非结构化文本提取结构化知识</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>依赖 Neo4j，基础设施较重</li>
+              <li>实体提取需要 LLM 调用，成本较高</li>
+              <li>图谱过大时查询性能需优化</li>
+              <li>生态较新，社区资源不如 Mem0 丰富</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案6: GraphRAG (Microsoft) -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #0ea5e9, #2563eb);">G</div>
+        <div class="solution-info">
+          <h3>GraphRAG (Microsoft Research)</h3>
+          <div class="meta">
+            <span class="stars">⭐ 20k+</span>
+            <span class="lang">Python</span>
+            <span>2024年7月</span>
+            <span>Microsoft Research</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">社区检测</span>
+            <span class="feature-tag">层次化摘要</span>
+            <span class="feature-tag">全局理解</span>
+            <span class="feature-tag">Leiden 算法</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>用 LLM 从文档中提取实体关系图谱 + 社区层次摘要，实现全局理解。
+
+  文档集合
+     │
+     ▼
+  ┌──────────┐    ┌───────────┐    ┌──────────────┐
+  │ <span class="hl">Text Chunk</span> │───▶│ <span class="hl2">Entity/Relation</span> │───▶│  Knowledge    │
+  │ 分块      │    │  提取       │    │  Graph       │
+  └──────────┘    └───────────┘    └──────┬───────┘
+                                           │
+                                           ▼
+                                    ┌──────────────┐
+                                    │ <span class="hl3">Leiden 社区检测</span>  │  自动发现实体聚类
+                                    └──────┬───────┘
+                                           │
+                              ┌────────────┼────────────┐
+                              ▼            ▼            ▼
+                         社区A摘要     社区B摘要     社区C摘要
+                              │            │            │
+                              └────────────┼────────────┘
+                                           ▼
+                                     全局摘要
+                                     (Global Summary)
+        </div>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>超越普通 RAG 的全局理解能力</li>
+              <li>社区检测自动发现知识聚类</li>
+              <li>层次化摘要兼顾局部和全局查询</li>
+              <li>微软官方维护，文档完善</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>索引阶段成本极高（大量 LLM 调用）</li>
+              <li>不支持时态信息（不知道"何时"）</li>
+              <li>更新图谱需要重新索引（增量更新差）</li>
+              <li>适合静态文档，不适合动态 Agent 记忆</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案7: 滑动窗口 + RAG (基线方案) -->
+    <div class="solution">
+      <div class="solution-header">
+        <div class="solution-badge" style="background: linear-gradient(135deg, #64748b, #475569);">R</div>
+        <div class="solution-info">
+          <h3>滑动窗口 + RAG（基线方案）</h3>
+          <div class="meta">
+            <span class="stars">—</span>
+            <span class="lang">Any</span>
+            <span>经典方案</span>
+          </div>
+          <div class="feature-tags">
+            <span class="feature-tag">简单直接</span>
+            <span class="feature-tag">滑动窗口</span>
+            <span class="feature-tag">向量检索</span>
+            <span class="feature-tag">低成本</span>
+          </div>
+        </div>
+      </div>
+      <div class="solution-body">
+        <div class="arch-diagram">
+<span class="hl">核心思想：</span>保留最近 N 轮对话 + 向量检索相关历史。
+
+  对话历史：[msg1, msg2, msg3, ..., msgN, msgN+1, <span class="hl">msgN+2(当前)</span>]
+                                ◄──── 滑动窗口 ────►
+
+  每次调用时：
+  1. 取最近 K 轮对话（窗口内）
+  2. 用当前问题查向量库 Top-5 历史片段
+  3. 拼接：System Prompt + 窗口对话 + 检索片段 + 当前问题
+  4. 发给 LLM
+        </div>
+
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✅ 优势</h4>
+            <ul>
+              <li>实现最简单，任何框架都能快速集成</li>
+              <li>零额外 LLM 成本（无提取/摘要步骤）</li>
+              <li>延迟最低（只需一次向量检索）</li>
+              <li>成熟稳定，生产验证充分</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>❌ 劣势</h4>
+            <ul>
+              <li>窗口外的信息永久丢失</li>
+              <li>无结构化知识，无法推理</li>
+              <li>向量检索可能召回无关内容</li>
+              <li>完全不具备时序理解能力</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 横向对比 -->
+<section class="section fade-in" id="comparison">
+  <h2><span class="num">4</span> 七大方案横向对比</h2>
+  <p class="desc">从关键维度对七种方案进行打分对比。</p>
+
+  <table class="comparison-table">
+    <thead>
+      <tr>
+        <th>方案</th>
+        <th>实现复杂度</th>
+        <th>额外成本</th>
+        <th>时序推理</th>
+        <th>知识关联</th>
+        <th>可扩展性</th>
+        <th>最适合场景</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="name">MemGPT / Letta</td>
+        <td class="badge-partial">中</td>
+        <td class="badge-partial">中</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-partial">弱</td>
+        <td class="badge-yes">强</td>
+        <td>长对话助手</td>
+      </tr>
+      <tr>
+        <td class="name">Mem0</td>
+        <td class="badge-yes">低</td>
+        <td class="badge-partial">中</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-partial">弱</td>
+        <td class="badge-yes">强</td>
+        <td>快速集成记忆</td>
+      </tr>
+      <tr>
+        <td class="name">Hermes 有界记忆</td>
+        <td class="badge-yes">极低</td>
+        <td class="badge-yes">零</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-no">弱</td>
+        <td>单 Agent 轻量</td>
+      </tr>
+      <tr>
+        <td class="name">AI Scientist v2</td>
+        <td class="badge-partial">中</td>
+        <td class="badge-yes">低</td>
+        <td class="badge-partial">树结构</td>
+        <td class="badge-partial">实验关联</td>
+        <td class="badge-no">中</td>
+        <td>实验探索</td>
+      </tr>
+      <tr>
+        <td class="name">Zep / Graphiti</td>
+        <td class="badge-no">高</td>
+        <td class="badge-no">高</td>
+        <td class="badge-yes">强</td>
+        <td class="badge-yes">强</td>
+        <td class="badge-yes">强</td>
+        <td>知识密集型 Agent</td>
+      </tr>
+      <tr>
+        <td class="name">GraphRAG</td>
+        <td class="badge-no">高</td>
+        <td class="badge-no">高</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-yes">强</td>
+        <td class="badge-partial">中</td>
+        <td>静态文档分析</td>
+      </tr>
+      <tr>
+        <td class="name">滑动窗口 + RAG</td>
+        <td class="badge-yes">极低</td>
+        <td class="badge-yes">零</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-no">✗</td>
+        <td class="badge-partial">中</td>
+        <td>通用基线</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 style="margin-top: 3rem;"><span class="num">5</span> 记忆方案演进时间线</h2>
+  <p class="desc">Agent 记忆技术从简单到复杂的发展脉络。</p>
+
+  <div class="timeline">
+    <div class="timeline-item">
+      <span class="year">2023 Q3</span>
+      <h4>MemGPT 发布（UC Berkeley）</h4>
+      <p>提出"虚拟上下文管理"概念，Agent 自主管理记忆换页，开创了结构化记忆管理先河。</p>
+    </div>
+    <div class="timeline-item">
+      <span class="year">2024 Q1</span>
+      <h4>Mem0 开源 + GraphRAG 论文（Microsoft）</h4>
+      <p>Mem0 让记忆集成降到 3 行代码；GraphRAG 将知识图谱引入 RAG，实现全局文档理解。</p>
+    </div>
+    <div class="timeline-item">
+      <span class="year">2024 Q2</span>
+      <h4>Hermes Agent 有界记忆 + Letta 成立</h4>
+      <p>Hermes 证明"少即是多"（≤2200 字）；MemGPT 团队商业化成立 Letta 公司。</p>
+    </div>
+    <div class="timeline-item">
+      <span class="year">2024 Q3</span>
+      <h4>AI Scientist v1 + Zep/Graphiti 发布</h4>
+      <p>AI Scientist 实现完全自主科研实验；Zep 推出 Graphiti 时态知识图谱，在 LongMemEval 拿到第一。</p>
+    </div>
+    <div class="timeline-item">
+      <span class="year">2025 Q1</span>
+      <h4>AI Scientist v2 + Mem0 Graph Memory</h4>
+      <p>AI Scientist v2 引入 BFTS 树搜索并行实验；Mem0 新增 Graph Memory 支持实体关系。</p>
+    </div>
+    <div class="timeline-item">
+      <span class="year">2025 Q2+</span>
+      <h4>Eino（Go）+ 多框架融合趋势</h4>
+      <p>Go 生态的 Eino 框架补齐了非 Python 的 Agent 编排能力；社区趋势是从单一方案走向混合记忆架构。</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 推荐方案 -->
+<section class="section fade-in" id="recommend">
+  <h2><span class="num">6</span> 科研 Agent 推荐方案</h2>
+  <p class="desc">针对自主科研场景的最优记忆架构组合。</p>
+
+  <div class="recommendation">
+    <h3>🎯 推荐方案：三层混合记忆架构</h3>
+    <p style="color: var(--text-dim); margin-bottom: 1.5rem;">
+      综合七种方案的优劣，科研 Agent 最适合 <strong>HOT(有界文件) + WARM(向量库) + COLD(知识图谱)</strong> 的三层混合架构。HOT 层借鉴 Hermes 的约束哲学，WARM 层使用 Chroma/RAG，COLD 层使用 Graphiti 的时态知识图谱处理方法对比关系。
+    </p>
+
+    <div class="stack-grid">
+      <div class="stack-item">
+        <div class="label">🔥 HOT Memory</div>
+        <div class="value">CURRENT_STATE.md ≤ 2200 字</div>
+        <div class="note">借鉴 Hermes：精简约束，零成本，每次调用注入</div>
+      </div>
+      <div class="stack-item">
+        <div class="label">🌡️ WARM Memory</div>
+        <div class="value">Chroma 向量数据库</div>
+        <div class="note">RAG 检索历史实验记录、文献摘要，按需注入</div>
+      </div>
+      <div class="stack-item">
+        <div class="label">🧊 COLD Memory</div>
+        <div class="value">Graphiti 时态知识图谱</div>
+        <div class="note">时序推理：追踪方法超越关系，回答"当前 SOTA 是什么"</div>
+      </div>
+      <div class="stack-item">
+        <div class="label">🌳 实验记忆</div>
+        <div class="value">BFTS 树节点（SQLite）</div>
+        <div class="note">借鉴 AI Scientist：实验树即记忆，父子节点传递结论</div>
+      </div>
+    </div>
+
+    <div class="arch-diagram" style="margin-top: 1.5rem;">
+<span class="hl">完整记忆读写时序：</span>
+
+Agent 收到任务: "继续 GNN 节点分类实验"
+  │
+  ├─ 1. 读取 <span class="hl">HOT</span>: CURRENT_STATE.md
+  │     → "上次 GraphSAGE 跑到 84.2%，下一步试 GAT"
+  │     → 直接注入 System Prompt
+  │
+  ├─ 2. 查询 <span class="hl2">WARM</span>: Chroma 语义检索
+  │     → 检索到 GraphSAGE 的完整代码和实验配置
+  │     → 检索到相关论文笔记
+  │     → 注入 Context Window
+  │
+  ├─ 3. 查询 <span class="hl3">COLD</span>: Graphiti 知识图谱
+  │     → Q: "Cora 数据集上最好的 GNN 方法"
+  │     → GCN(81.5%, 2025-12) → GraphSAGE(84.2%, 2026-04) → ...
+  │     → 发现：GAT 在类似数据集上通常比 GraphSAGE 高 1-2%
+  │     → 注入 Context Window
+  │
+  ├─ 4. 生成 GAT 实验代码 → Docker 执行
+  │
+  ├─ 5. 实验完成 → 更新记忆
+  │     ├─ HOT: 更新 CURRENT_STATE.md（"GAT 达到 85.1%"）
+  │     ├─ WARM: 存入 Chroma（实验记录向量）
+  │     ├─ COLD: 更新 Graphiti（GAT→85.1%→Cora 实体）
+  │     └─ 树节点: 记录到 BFTS 树
+  │
+  └─ 6. 检查 HOT 字数 → 超 2200 字 → 压缩 + 冻结快照
+    </div>
+
+    <p style="color: var(--text-dim); margin-top: 1.5rem; font-size: 0.95rem;">
+      <strong>为什么不选单一方案？</strong>科研 Agent 的记忆需求是多维的：需要即时上下文（HOT）、历史经验检索（WARM）、时序知识推理（COLD）、实验结构管理（BFTS 树）。没有任何单一方案能同时满足这四个维度，混合架构是必然选择。
+    </p>
+  </div>
+</section>
+
+<footer>
+  <p>MingkunSearch Agent Memory 技术调研 | 2026-04-17 | 基于 Eino (Go) 框架</p>
+</footer>
+
+<script>
+// 滚动淡入动画
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// 平滑滚动
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+</script>
+
+</body>
+</html>

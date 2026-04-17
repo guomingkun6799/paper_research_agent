@@ -1,0 +1,15 @@
+*.exe
+*.dll
+*.so
+*.dylib
+
+.DS_Store
+Thumbs.db
+
+.idea/
+.vscode/
+
+memory/chroma_data/
+experiments/
+
+*.log
